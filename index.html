@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Tool Suite</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f4f9; color: #333; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        input[type="number"], input[type="file"] { padding: 8px; width: 100%; box-sizing: border-box; }
+        .btn-group { display: flex; gap: 10px; margin-top: 15px; }
+        button { padding: 10px 20px; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; }
+        .btn-image { background-color: #28a745; }
+        .btn-text { background-color: #17a2b8; }
+        button:hover { opacity: 0.9; }
+        #statusMessage { margin-top: 15px; font-weight: bold; font-size: 1.1em; }
+        #gallery { margin-top: 30px; display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
+        #tocContainer { margin-top: 20px; background: #e9ecef; padding: 15px; border-radius: 5px; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>PDF Tool Suite</h2>
+    
+    <form id="extractForm">
+        <div class="form-group">
+            <label for="pdfFile">Select PDF File:</label>
+            <input type="file" id="pdfFile" accept="application/pdf" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="startPage">Start Page:</label>
+            <input type="number" id="startPage" min="1" value="1">
+        </div>
+        
+        <div class="form-group">
+            <label for="endPage">End Page (Leave 0 for all remaining):</label>
+            <input type="number" id="endPage" min="0" value="0">
+        </div>
+        
+        <div class="btn-group">
+            <button type="button" class="btn-image" onclick="extractImages()">📸 Extract Images</button>
+            <button type="button" class="btn-text" onclick="extractSubsections()">📄 Find Subsections</button>
+        </div>
+    </form>
+
+    <div id="statusMessage"></div>
+    
+    <div id="tocContainer">
+        <h3 style="margin-top: 0;">Found <span id="subCount">0</span> Subsections in selected range</h3>
+        <ul id="subsectionList" style="margin-bottom: 0; max-height: 400px; overflow-y: auto;"></ul>
+    </div>
+
+    <div id="gallery"></div>
+</div>
+
+<script>
+    const statusMsg = document.getElementById('statusMessage');
+    const gallery = document.getElementById('gallery');
+    const tocContainer = document.getElementById('tocContainer');
+    const subsectionList = document.getElementById('subsectionList');
+    const subCount = document.getElementById('subCount');
+
+    // --- FEATURE 1: IMAGE EXTRACTION ---
+    async function extractImages() {
+        const fileInput = document.getElementById('pdfFile').files[0];
+        if (!fileInput) return alert("Please select a PDF first!");
+
+        gallery.innerHTML = ''; // Clear previous images
+        tocContainer.style.display = 'none'; // Hide text results
+        statusMsg.style.color = '#333';
+        statusMsg.textContent = 'Processing Images... Please wait.';
+
+        const formData = new FormData();
+        formData.append('pdf', fileInput);
+        formData.append('start', document.getElementById('startPage').value);
+        formData.append('end', document.getElementById('endPage').value);
+
+        try {
+            const response = await fetch('http://127.0.0.1:5000/extract', { method: 'POST', body: formData });
+            const data = await response.json();
+
+            if (!response.ok) throw new Error(data.error);
+
+            statusMsg.style.color = 'green';
+            statusMsg.textContent = `Success! Extracted ${data.images.length} pages.`;
+
+            data.images.forEach(item => {
+                const imageContainer = document.createElement('div');
+                imageContainer.style.textAlign = 'center';
+
+                const imgElement = document.createElement('img');
+                imgElement.src = item.image_data;
+                imgElement.style.maxWidth = '200px'; 
+                imgElement.style.border = '1px solid #ccc';
+                imgElement.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+
+                const downloadBtn = document.createElement('a');
+                downloadBtn.href = item.image_data;
+                downloadBtn.download = `page_${item.page}.png`; 
+                downloadBtn.textContent = 'Download Image';
+                downloadBtn.style.display = 'block';
+                downloadBtn.style.marginTop = '8px';
+                downloadBtn.style.padding = '8px 12px';
+                downloadBtn.style.background = '#28a745';
+                downloadBtn.style.color = 'white';
+                downloadBtn.style.textDecoration = 'none';
+                downloadBtn.style.borderRadius = '4px';
+
+                imageContainer.appendChild(imgElement);
+                imageContainer.appendChild(downloadBtn);
+                gallery.appendChild(imageContainer);
+            });
+        } catch (error) {
+            statusMsg.style.color = 'red';
+            statusMsg.textContent = `Error: ${error.message}`;
+        }
+    }
+
+    // --- FEATURE 2: SUBSECTION EXTRACTION ---
+    async function extractSubsections() {
+        const fileInput = document.getElementById('pdfFile').files[0];
+        if (!fileInput) return alert("Please select a PDF first!");
+
+        gallery.innerHTML = ''; // Hide image results
+        tocContainer.style.display = 'none'; // Hide old list
+        subsectionList.innerHTML = '';
+        statusMsg.style.color = '#333';
+        statusMsg.textContent = 'Scanning document for text... Please wait.';
+
+        const formData = new FormData();
+        formData.append('pdf', fileInput);
+        formData.append('start', document.getElementById('startPage').value);
+        formData.append('end', document.getElementById('endPage').value);
+
+        try {
+            const response = await fetch('http://127.0.0.1:5000/extract_subsections', { method: 'POST', body: formData });
+            const data = await response.json();
+
+            if (!response.ok) throw new Error(data.error);
+
+            statusMsg.style.color = 'green';
+            statusMsg.textContent = `Success! Scan complete.`;
+
+            if (data.subsections.length > 0) {
+                tocContainer.style.display = 'block';
+                subCount.textContent = data.total_subsections_found;
+                
+                data.subsections.forEach(sub => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<strong>${sub.section_number}</strong> ${sub.title} <em>(Page ${sub.page})</em>`;
+                    li.style.marginBottom = '8px';
+                    subsectionList.appendChild(li);
+                });
+            } else {
+                statusMsg.textContent = 'Scan complete, but no subsections (e.g. "2.1 Title") were found in that range.';
+            }
+        } catch (error) {
+            statusMsg.style.color = 'red';
+            statusMsg.textContent = `Error: ${error.message}`;
+        }
+    }
+</script>
+
+</body>
+</html>
